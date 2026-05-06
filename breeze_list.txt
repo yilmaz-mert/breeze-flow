@@ -1,0 +1,47 @@
+# --- Discord Main Domains ---
+discord.com
+discord.gg
+discord.media
+discordapp.com
+discordapp.net
+discord.co
+discordstatus.com
+discordapp.io
+discord.dev
+dis.gd
+# --- Update and Startup (Starting/Update Fix) ---
+updates.discord.com
+status.discord.com
+status.discordapp.com
+dl.discordapp.net
+sentry.io
+discord.support
+discord.training
+# --- Media and Content Servers (CDN & Infrastructure) ---
+cdn.discordapp.com
+media.discordapp.net
+discord-attachments-uploads-prd.storage.googleapis.com
+storage.googleapis.com
+amazonaws.com
+s3.amazonaws.com
+s3.us-east-1.amazonaws.com
+googlevideo.com
+stats.g.doubleclick.net
+# --- Voice and Connectivity (Voice/RTC/Gateway) ---
+gateway.discord.gg
+latency.discord.media
+rtc.discord.media
+best.discord.media
+router.discordapp.net
+api.discord.com
+api.discordapp.com
+# --- Verification and Captcha (Arkose/hCaptcha) ---
+arkoselabs.com
+client-api.arkoselabs.com
+hcaptcha.com
+newassets.hcaptcha.com
+# --- GIFs and Embedded Content ---
+tenor.com
+c.tenor.com
+media.tenor.com
+# --- Additional Requests ---
