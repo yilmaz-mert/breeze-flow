@@ -25,15 +25,9 @@
 
 ## Screenshots
 
-> Replace these placeholders with actual screenshots after your first build.
-
 | Dashboard | Smart Routing Editor |
 |---|---|
-| ![Dashboard](docs/screenshots/dashboard.png) | ![Editor](docs/screenshots/editor.png) |
-
-| Engine Error Modal | System Tray |
-|---|---|
-| ![Error Modal](docs/screenshots/error-modal.png) | ![Tray](docs/screenshots/tray.png) |
+| ![Dashboard]breeze-flow\src\assets\dashboard.png) | ![Editor](breeze-flow\src\assets\editor.png) |
 
 ---
 
