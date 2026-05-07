@@ -1,11 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import {
-  enable as enableAutostart,
-  disable as disableAutostart,
-  isEnabled as isAutostartEnabled,
-} from "@tauri-apps/plugin-autostart";
 
 interface EngineConfig {
   profile: string;
@@ -21,24 +16,6 @@ interface BreezeListResponse {
   content: string;
   path: string;
 }
-
-const ISP_PRESETS = [
-  {
-    label: "SUPEROLN",
-    full: "SUPERONLINE",
-    args: "-5 --set-ttl 5 --dns-addr 77.88.8.8 --dns-port 1253",
-  },
-  {
-    label: "T.TELEKOM",
-    full: "TURK TELEKOM",
-    args: "-6 --set-ttl 4 --dns-addr 1.1.1.1 --dns-port 53",
-  },
-  {
-    label: "TURKSAT",
-    full: "TURKSAT",
-    args: "-e 2 --set-ttl 5 --dns-addr 77.88.8.8 --dns-port 1253",
-  },
-];
 
 function App() {
   // ── Core state ──────────────────────────────────────────────────────────────
@@ -60,8 +37,7 @@ function App() {
   // ── Error modal state ───────────────────────────────────────────────────────
   const [engineError, setEngineError] = useState<string | null>(null);
 
-  // ── Analytics state ─────────────────────────────────────────────────────────
-  const [bypassEfficiency, setBypassEfficiency] = useState(0);
+  // ── Uptime state ────────────────────────────────────────────────────────────
   const [uptimeDisplay, setUptimeDisplay] = useState("--:--:--");
 
   // ── Editor state ────────────────────────────────────────────────────────────
@@ -129,16 +105,12 @@ function App() {
 
   // ── State sync ──────────────────────────────────────────────────────────────
 
-  /** Fetches the active engine config from the backend and syncs all derived UI state. */
   const fetchState = async () => {
     try {
       const config = await invoke<EngineConfig | null>("get_active_config");
       setActiveConfig(config);
       setEngineStatus(statusFromConfig(config));
-      if (!config) {
-        stopUptime();
-        setBypassEfficiency(0);
-      }
+      if (!config) stopUptime();
       if (config?.profile) setSelectedProfile(config.profile);
       if (config?.custom_args) setCustomArgs(config.custom_args);
     } catch (e) {
@@ -148,10 +120,6 @@ function App() {
 
   // ── Engine handlers ─────────────────────────────────────────────────────────
 
-  /**
-   * Starts GoodbyeDPI. Accepts an optional argsOverride so ISP preset buttons
-   * can pass new args directly without waiting for a React state flush.
-   */
   const handleStart = async (argsOverride?: string) => {
     const effectiveArgs = argsOverride ?? customArgs;
     addLog("--- NEW SESSION ---", "info");
@@ -162,7 +130,6 @@ function App() {
       await invoke("start_engine", { profile: selectedProfile, customArgs: effectiveArgs });
       addLog(`[SYSTEM] Engine started in ${selectedProfile.toUpperCase()} mode.`, "system");
       startUptime();
-      setBypassEfficiency(96 + Math.floor(Math.random() * 4));
       fetchState();
     } catch (e: any) {
       const msg = String(e);
@@ -170,7 +137,6 @@ function App() {
       setEngineStatus("ERROR");
       setEngineError(msg);
       stopUptime();
-      setBypassEfficiency(0);
     } finally {
       setIsStarting(false);
     }
@@ -178,10 +144,6 @@ function App() {
 
   const isRunning = engineStatus.startsWith("RUNNING");
 
-  /**
-   * Applies the ENGINE ARGUMENTS input. Hot-restarts if running, otherwise
-   * queues the new args for the next manual start.
-   */
   const handleApplyArgs = () => {
     if (isRunning && !isStarting) {
       addLog("Applying new engine arguments — restarting...", "info");
@@ -191,29 +153,15 @@ function App() {
     }
   };
 
-  /**
-   * Loads an ISP preset into the arguments field and immediately restarts
-   * if the engine is running. Bypasses React state batching by passing args directly.
-   */
-  const handlePreset = (preset: typeof ISP_PRESETS[number]) => {
-    setCustomArgs(preset.args);
-    if (isRunning && !isStarting) {
-      addLog(`[SYSTEM] Applying ${preset.full} preset — restarting...`, "system");
-      handleStart(preset.args);
-    } else {
-      addLog(`[SYSTEM] ${preset.full} preset loaded. Click START ENGINE to apply.`, "system");
-    }
-  };
-
-  /** Toggles Windows autostart for BreezeFlow. */
+  /** Toggles Windows autostart via Task Scheduler (elevated-app safe). */
   const handleAutostartToggle = async () => {
     try {
       if (autostartEnabled) {
-        await disableAutostart();
+        await invoke("disable_autostart");
         setAutostartEnabled(false);
         addLog("Autostart disabled.", "info");
       } else {
-        await enableAutostart();
+        await invoke("enable_autostart");
         setAutostartEnabled(true);
         addLog("[SYSTEM] Autostart enabled — BreezeFlow will launch with Windows.", "system");
       }
@@ -222,13 +170,11 @@ function App() {
     }
   };
 
-  /** Stops the engine. Backend also flushes DNS. */
   const handleStop = async () => {
     try {
       await invoke("stop_engine");
       addLog("[SYSTEM] Engine stopped.", "system");
       stopUptime();
-      setBypassEfficiency(0);
       fetchState();
     } catch (e: any) {
       addLog(`ERROR: ${e}`, "error");
@@ -240,7 +186,7 @@ function App() {
   useEffect(() => {
     invoke<boolean>("check_admin").then(setIsAdmin);
     fetchState();
-    isAutostartEnabled().then(setAutostartEnabled).catch(() => {});
+    invoke<boolean>("check_autostart").then(setAutostartEnabled).catch(() => {});
     return () => { stopUptime(); };
   }, []);
 
@@ -248,7 +194,6 @@ function App() {
     logEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs]);
 
-  // Show a one-time toast when Rust tells us the window was hidden to the tray.
   useEffect(() => {
     const unlisten = listen("window-hidden", () => {
       setShowTrayToast(true);
@@ -257,21 +202,18 @@ function App() {
     return () => { unlisten.then((f) => f()); };
   }, []);
 
-  // Listen for Ctrl+Shift+B global hotkey toggle events from Rust.
   useEffect(() => {
     const unlisten = listen<string>("shortcut-toggle", (event) => {
-      const state = event.payload; // "ENABLED" | "DISABLED" | "ERROR"
+      const state = event.payload;
 
       if (shortcutToastTimerRef.current) clearTimeout(shortcutToastTimerRef.current);
       setShortcutToast(state);
 
       if (state === "ENABLED") {
         startUptime();
-        setBypassEfficiency(96 + Math.floor(Math.random() * 4));
         addLog("[SYSTEM] Hotkey: engine ENABLED.", "system");
       } else if (state === "DISABLED") {
         stopUptime();
-        setBypassEfficiency(0);
         addLog("[SYSTEM] Hotkey: engine DISABLED.", "system");
       } else {
         addLog("[SYSTEM] Hotkey: engine start FAILED. Run as Administrator.", "error");
@@ -283,8 +225,6 @@ function App() {
     return () => { unlisten.then((f) => f()); };
   }, []);
 
-  // Auto-restart when the user changes profile while running.
-  // profileChangedByUser guards against firing on programmatic setSelectedProfile calls.
   useEffect(() => {
     if (!profileChangedByUser.current) return;
     profileChangedByUser.current = false;
@@ -296,7 +236,6 @@ function App() {
 
   // ── Editor handlers ─────────────────────────────────────────────────────────
 
-  /** Opens the Smart Routing editor and loads the current `breeze_list.txt`. */
   const openEditor = async () => {
     try {
       const res = await invoke<BreezeListResponse>("read_breeze_list");
@@ -308,10 +247,6 @@ function App() {
     }
   };
 
-  /**
-   * Downloads a remote domain list, overwrites `breeze_list.txt`,
-   * and refreshes the editor textarea in-place.
-   */
   const handleCloudSync = async () => {
     setSyncButtonText("SYNCING...");
     try {
@@ -326,7 +261,6 @@ function App() {
     }
   };
 
-  /** Persists the editor content and optionally restarts the engine. */
   const saveEditor = async () => {
     try {
       setSaveButtonText("SAVING...");
@@ -352,19 +286,6 @@ function App() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[#121212] text-xs font-mono text-[#E0E0E0] select-none p-3 overflow-hidden">
-
-      {/* Title Bar */}
-      <div className="flex justify-between items-center border-b-2 border-[#333] pb-2 mb-3 shrink-0">
-        <div className="flex items-center gap-3">
-          <h1 className="text-lg font-bold text-white tracking-widest">BREEZEFLOW</h1>
-          <span className="text-[#555] text-[10px] tracking-widest">Ctrl+Shift+B to toggle</span>
-        </div>
-        {!isAdmin && (
-          <div className="bg-red-900/30 border border-red-500 text-red-400 px-2 py-0.5 uppercase tracking-widest font-bold animate-pulse">
-            Admin Privileges Required
-          </div>
-        )}
-      </div>
 
       <div className="flex flex-1 gap-3 overflow-hidden min-h-0">
 
@@ -449,24 +370,6 @@ function App() {
               )}
             </div>
 
-            {/* ISP Presets */}
-            <div className="flex flex-col gap-1">
-              <span className="text-[#666] tracking-widest">ISP PRESETS</span>
-              <div className="grid grid-cols-3 gap-1">
-                {ISP_PRESETS.map((preset) => (
-                  <button
-                    key={preset.label}
-                    onClick={() => handlePreset(preset)}
-                    disabled={isStarting}
-                    title={preset.full}
-                    className="bg-[#111] hover:bg-[#252525] active:scale-95 text-[#AAA] hover:text-cyan-300 py-1.5 px-1 border border-[#333] hover:border-cyan-800 disabled:opacity-50 uppercase tracking-wider text-[9px] font-bold cursor-pointer transition-all truncate"
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Engine Arguments */}
             <div className="flex flex-col gap-1">
               <span className="text-[#666] tracking-widest">ENGINE ARGUMENTS</span>
@@ -511,12 +414,12 @@ function App() {
               <button
                 onClick={handleAutostartToggle}
                 aria-label="Toggle autostart"
-                className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${
+                className={`inline-flex h-5 w-9 items-center rounded-full px-1 transition-colors duration-200 ${
                   autostartEnabled ? "bg-cyan-600" : "bg-[#333]"
                 }`}
               >
-                <span className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-                  autostartEnabled ? "translate-x-6" : "translate-x-1"
+                <span className={`h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                  autostartEnabled ? "translate-x-4" : "translate-x-0"
                 }`} />
               </button>
             </div>
@@ -538,35 +441,13 @@ function App() {
               <div ref={logEndRef} />
             </div>
 
-            {/* Live Stats Bar */}
+            {/* Stats Bar — Uptime only */}
             <div className="bg-[#0D0D0D] border-t border-[#1E1E1E] px-3 py-1.5 flex items-center gap-5 shrink-0">
               <div className="flex items-center gap-1.5">
                 <span className="text-[#444] tracking-widest text-[9px] uppercase">UPTIME</span>
                 <span className={`font-mono text-[10px] font-bold tabular-nums ${isRunning ? "text-green-400" : "text-[#555]"}`}>
                   {uptimeDisplay}
                 </span>
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                <span className="text-[#444] tracking-widest text-[9px] uppercase">STATUS</span>
-                <span className={`text-[10px] font-bold ${isRunning ? "text-green-400" : "text-[#555]"}`}>
-                  {isRunning ? "● STABLE" : "● OFFLINE"}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-1.5 ml-auto">
-                <span className="text-[#444] tracking-widest text-[9px] uppercase">BYPASS EFF.</span>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-16 h-1 bg-[#1E1E1E] rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-green-500 transition-all duration-700 ease-out"
-                      style={{ width: `${bypassEfficiency}%` }}
-                    />
-                  </div>
-                  <span className={`text-[10px] font-bold tabular-nums w-8 text-right ${bypassEfficiency > 0 ? "text-green-400" : "text-[#555]"}`}>
-                    {bypassEfficiency > 0 ? `${bypassEfficiency}%` : "--"}
-                  </span>
-                </div>
               </div>
             </div>
           </div>

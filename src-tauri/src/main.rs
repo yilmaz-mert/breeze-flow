@@ -11,7 +11,6 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, RunEvent, State, WindowEvent,
 };
-use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_shell::process::CommandChild;
 use tauri_plugin_shell::ShellExt;
@@ -216,6 +215,68 @@ async fn check_admin() -> Result<bool, String> {
     }
 }
 
+/// Creates a Task Scheduler entry to launch BreezeFlow at logon with highest privileges.
+#[tauri::command]
+async fn enable_autostart() -> Result<(), String> {
+    #[cfg(not(target_os = "windows"))]
+    return Ok(());
+
+    #[cfg(target_os = "windows")]
+    {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        let task_run = format!("\"{}\"", exe.to_string_lossy());
+        let output = std::process::Command::new("schtasks")
+            .args([
+                "/create",
+                "/tn", "BreezeFlow_Autostart",
+                "/tr", &task_run,
+                "/sc", "onlogon",
+                "/rl", "highest",
+                "/f",
+            ])
+            .creation_flags(0x08000000)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            let msg = String::from_utf8_lossy(&output.stdout).to_string()
+                + &String::from_utf8_lossy(&output.stderr);
+            return Err(msg.trim().to_string());
+        }
+        Ok(())
+    }
+}
+
+/// Removes the BreezeFlow Task Scheduler entry if it exists.
+#[tauri::command]
+async fn disable_autostart() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        // Ignore exit code — task may already be absent, which is the desired state.
+        let _ = std::process::Command::new("schtasks")
+            .args(["/delete", "/tn", "BreezeFlow_Autostart", "/f"])
+            .creation_flags(0x08000000)
+            .output();
+    }
+    Ok(())
+}
+
+/// Returns `true` when the BreezeFlow autostart task exists in Task Scheduler.
+#[tauri::command]
+async fn check_autostart() -> Result<bool, String> {
+    #[cfg(not(target_os = "windows"))]
+    return Ok(false);
+
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new("schtasks")
+            .args(["/query", "/tn", "BreezeFlow_Autostart"])
+            .creation_flags(0x08000000)
+            .output()
+            .map_err(|e| e.to_string())?;
+        Ok(output.status.success())
+    }
+}
+
 /// Starts GoodbyeDPI with the specified routing profile and argument string.
 #[tauri::command]
 async fn start_engine(
@@ -257,7 +318,6 @@ async fn sync_list_from_cloud(app: AppHandle, url: String) -> Result<String, Str
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_shell::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -371,6 +431,9 @@ fn main() {
             read_breeze_list,
             write_breeze_list,
             sync_list_from_cloud,
+            enable_autostart,
+            disable_autostart,
+            check_autostart,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -5,7 +5,8 @@
       "Bash(npm install *)",
       "Bash(Test-Path *)",
       "Bash(taskkill /f /im goodbyedpi*)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(npx tauri *)"
     ]
   },
   "enabledPlugins": {
