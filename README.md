@@ -27,7 +27,7 @@
 
 | Dashboard | Smart Routing Editor |
 |---|---|
-| ![Dashboard]breeze-flow\src\assets\dashboard.png) | ![Editor](breeze-flow\src\assets\editor.png) |
+| ![Dashboard](src/assets/dashboard.png) | ![Editor](src/assets/editor.png) |
 
 ---
 
